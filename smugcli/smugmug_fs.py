@@ -406,6 +406,13 @@ class SmugMugFS(object):
         file_content = f.read()
       remote_file = node.get_child(file_name)
 
+      # noinspection PyBroadException
+      try:
+        with open(file_path + ".json", 'rb') as json_file:
+          json_file_content: json = json.load(json_file)
+      except:
+        json_file_content: json = json.dumps({"Keywords": "auto"})
+
       if remote_file:
         if remote_file['Format'].lower() in VIDEO_EXT:
           # Video files are modified by SmugMug server side, so we cannot use
@@ -432,19 +439,25 @@ class SmugMugFS(object):
           same_file = (remote_md5 == file_md5)
 
         if same_file:
+          remote_file.patch('Image', json=json_file_content)
           return  # File already exists on Smugmug
 
       if self._aborting:
         return
+
+      for key in json_file_content:
+        json_file_content["X-Smug-" + key] = json_file_content.pop(key)
+
       upload_pool.add(self._upload_media,
                       manager,
                       node,
                       remote_file,
                       file_path,
                       file_name,
-                      file_content)
+                      file_content,
+                      json_file_content)
 
-  def _upload_media(self, manager, node, remote_file, file_path, file_name, file_content):
+  def _upload_media(self, manager, node, remote_file, file_path, file_name, file_content, json_file_content):
     if self._aborting:
       return
     if remote_file:
@@ -463,7 +476,8 @@ class SmugMugFS(object):
 
     with manager.start_task(0, task):
       node.upload('Album', file_name, file_content,
-                  progress_fn=get_progress_fn(task))
+                  progress_fn=get_progress_fn(task),
+                  headers=json_file_content)
 
     if remote_file:
       print('Re-uploaded "%s".' % file_path)
